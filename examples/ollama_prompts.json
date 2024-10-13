@@ -1,0 +1,320 @@
+{
+  "last_node_id": 12,
+  "last_link_id": 16,
+  "nodes": [
+    {
+      "id": 4,
+      "type": "Text box",
+      "pos": {
+        "0": 555,
+        "1": 311
+      },
+      "size": [
+        397.4892987522519,
+        122.10740280355941
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            13
+          ],
+          "slot_index": 0,
+          "shape": 3,
+          "label": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Text box"
+      },
+      "widgets_values": [
+        "she sits on a chair."
+      ]
+    },
+    {
+      "id": 5,
+      "type": "Text box",
+      "pos": {
+        "0": 552,
+        "1": 489
+      },
+      "size": {
+        "0": 395.13800048828125,
+        "1": 116.5143814086914
+      },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            14
+          ],
+          "slot_index": 0,
+          "shape": 3,
+          "label": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Text box"
+      },
+      "widgets_values": [
+        ""
+      ]
+    },
+    {
+      "id": 6,
+      "type": "Text box",
+      "pos": {
+        "0": 455,
+        "1": 670
+      },
+      "size": {
+        "0": 721.738037109375,
+        "1": 331.91436767578125
+      },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            15
+          ],
+          "slot_index": 0,
+          "shape": 3,
+          "label": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Text box"
+      },
+      "widgets_values": [
+        "As a professional art critic, describe the image based on the descriptions provided in the following three reference paragraphs. \nThe first reference paragraph:\n{positive_text}\nThe second reference paragraph:\n{reference_text}\nThe third reference paragraph:\n{negative_text}\nCreate a coherent and realistic scene in a single paragraph. Include:\nDescribe placement\nMain subject details\nArtistic style and theme\nSetting and narrative contribution\nLighting characteristics\nColor palette and emotional tone\nCamera angle and focus\nThe elements described in the first reference paragraph must be included in the output paragraph, and if there is a conflict between the first reference paragraph and the second reference paragraph, the first reference paragraph takes precedence.\nThe description in the third reference paragraph contains negative elements and should not appear in the output paragraph. If no description for the third reference paragraph is provided, it can be ignored.\nMerge image concepts if there is more than one.\nAlways blend the concepts, never talk about splits or parallel. \nDo not split or divide scenes, or talk about them differently - merge everything to one scene and one scene only.\nBlend all elements into unified reality. Use image generation prompt language. No preamble, questions, or commentary."
+      ]
+    },
+    {
+      "id": 12,
+      "type": "OllamaPromptsGeneratorTlant",
+      "pos": {
+        "0": 1275,
+        "1": 235
+      },
+      "size": [
+        378,
+        178
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "positive_text",
+          "type": "STRING",
+          "link": 12,
+          "widget": {
+            "name": "positive_text"
+          }
+        },
+        {
+          "name": "reference_text",
+          "type": "STRING",
+          "link": 13,
+          "widget": {
+            "name": "reference_text"
+          }
+        },
+        {
+          "name": "negative_text",
+          "type": "STRING",
+          "link": 14,
+          "widget": {
+            "name": "negative_text"
+          }
+        },
+        {
+          "name": "prompt_template",
+          "type": "STRING",
+          "link": 15,
+          "widget": {
+            "name": "prompt_template"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            16
+          ],
+          "shape": 3,
+          "label": "STRING",
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OllamaPromptsGeneratorTlant"
+      },
+      "widgets_values": [
+        "",
+        "",
+        "",
+        "As a professional art critic, describe the image based on the descriptions provided in the following three reference paragraphs. \nThe first reference paragraph:\n{positive_text}\nThe second reference paragraph:\n{reference_text}\nThe third reference paragraph:\n{negative_text}\nCreate a coherent and realistic scene in a single paragraph. Include:\nDescribe placement\nMain subject details\nArtistic style and theme\nSetting and narrative contribution\nLighting characteristics\nColor palette and emotional tone\nCamera angle and focus\nThe elements described in the first reference paragraph must be included in the output paragraph, and if there is a conflict between the first reference paragraph and the second reference paragraph, the first reference paragraph takes precedence.\nThe description in the third reference paragraph contains negative elements and should not appear in the output paragraph. If no description for the third reference paragraph is provided, it can be ignored.\nMerge image concepts if there is more than one.\nAlways blend the concepts, never talk about splits or parallel. \nDo not split or divide scenes, or talk about them differently - merge everything to one scene and one scene only.\nBlend all elements into unified reality. Use image generation prompt language. No preamble, questions, or commentary.",
+        "llama3.1:8b",
+        "http://localhost:22001/api/generate"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "ShowTextForGPT",
+      "pos": {
+        "0": 1738,
+        "1": 233
+      },
+      "size": {
+        "0": 530.9652709960938,
+        "1": 289.8856201171875
+      },
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 16,
+          "widget": {
+            "name": "text"
+          },
+          "label": "text"
+        },
+        {
+          "name": "output_dir",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "output_dir"
+          },
+          "label": "output_dir"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": null,
+          "shape": 6,
+          "label": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ShowTextForGPT"
+      },
+      "widgets_values": [
+        "",
+        "",
+        "A serene young woman, radiating warmth with a gentle smile, sits poised on the edge of a worn, wooden chair in a tranquil domestic setting. Her placement is deliberate, as if embracing the comfort that comes with being enveloped by familiar surroundings. The soft, warm light that fills the space caresses her features, illuminating the subtle curves of her face and accentuating the kindness in her eyes. This warm glow is echoed in the muted color palette, which combines soothing hues of beige, honey, and sky blue to evoke a sense of peaceful intimacy.\n\nThe artistic style appears to be a blend of realism with a touch of nostalgia, reminiscent of works from the Impressionist era. The theme revolves around the serenity that can be found within domestic spaces, particularly when accompanied by the gentle presence of loved ones. The setting itself is that of an old home, perhaps one filled with memories and history, where time seems to stand still.\n\nThe lighting characteristics are soft and warm, with a golden hue that permeates every corner of the room. This gentle illumination not only highlights the subject's features but also underscores the narrative contribution – the quiet contentment that comes from being in a place where love and comfort reside."
+      ]
+    },
+    {
+      "id": 3,
+      "type": "Text box",
+      "pos": {
+        "0": 551,
+        "1": 56
+      },
+      "size": {
+        "0": 400,
+        "1": 200
+      },
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            12
+          ],
+          "slot_index": 0,
+          "shape": 3,
+          "label": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Text box"
+      },
+      "widgets_values": [
+        "a young woman, smiling, "
+      ]
+    }
+  ],
+  "links": [
+    [
+      12,
+      3,
+      0,
+      12,
+      0,
+      "STRING"
+    ],
+    [
+      13,
+      4,
+      0,
+      12,
+      1,
+      "STRING"
+    ],
+    [
+      14,
+      5,
+      0,
+      12,
+      2,
+      "STRING"
+    ],
+    [
+      15,
+      6,
+      0,
+      12,
+      3,
+      "STRING"
+    ],
+    [
+      16,
+      12,
+      0,
+      11,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1.1671841070450029,
+      "offset": [
+        -397.6369228685991,
+        72.49368825956064
+      ]
+    }
+  },
+  "version": 0.4
+}
