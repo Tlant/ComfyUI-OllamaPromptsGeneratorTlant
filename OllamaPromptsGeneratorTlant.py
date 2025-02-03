@@ -80,6 +80,14 @@ Blend all elements into unified reality. Use image generation prompt language. N
     FUNCTION = "execute"  
     CATEGORY = "prompts"  
 
+    @classmethod  
+    def IS_CHANGED(cls, directory_path):  
+        """  
+        每次执行时强制节点重新运行，确保随机选择文件。  
+        返回一个随机数作为变化标识。  
+        """  
+        return str(random.random())  
+
     def execute(self, positive_text, reference_text, negative_text, prompt_template, custom_model, ollama_url):  
 
         prompt = prompt_template.format(positive_text=positive_text, reference_text=reference_text, negative_text=negative_text)
