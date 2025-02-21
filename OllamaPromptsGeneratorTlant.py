@@ -1,6 +1,8 @@
 import requests
 import os
 import random
+import hashlib  
+
 
 class OllamaPromptsGeneratorTlant:  
     """  
@@ -83,7 +85,7 @@ Blend all elements into unified reality. Use image generation prompt language. N
     @classmethod  
     def IS_CHANGED(cls, directory_path):  
         """  
-        每次执行时强制节点重新运行，确保随机选择文件。  
+        每次执行时强制节点重新运行。  
         返回一个随机数作为变化标识。  
         """  
         return str(random.random())  
@@ -179,15 +181,79 @@ class LoadRandomTxtFileTlant:
             return (content, )  
         except Exception as e:  
             return (f"读取文件时发生错误: {e}", )  
+     
+   
+class OllamaSimpleTextGeneratorTlant:  
+    def __init__(self):  
+        pass  
+
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        return {  
+            "required": {  
+                "text1": ("STRING", {"forceInput": True}),  
+                "text2": ("STRING", {"forceInput": True}),  
+                "prompt_template": ("STRING", {  
+                    "multiline": True,  
+                    "default": "By analyzing the content of Text 1 and Text 2, combine them into a coherent description.Text 1: {text1} Text 2: {text2}\n Give me result only."  
+                }),  
+            },  
+            "optional": {  
+                "model": ("STRING", {"default": "llama3"}),  
+                "api_url": ("STRING", {"default": "http://localhost:11434/api/generate"}),  
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 1.0, "step": 0.1}),  
+            }  
+        }  
+
+    RETURN_TYPES = ("STRING",)  
+    RETURN_NAMES = ("generated_text",)  
+    FUNCTION = "generate"  
+    CATEGORY = "AI Tools/Ollama"  
+
+    @classmethod  
+    def IS_CHANGED(cls, *args, **kwargs):  
+        # 生成参数指纹  
+        param_str = str(kwargs) + str(args)  
+        return hashlib.sha256(param_str.encode()).hexdigest()  
+
+    def generate(self, text1, text2, prompt_template, model, api_url, temperature):  
+        # 模板格式化  
+        final_prompt = prompt_template.format(  
+            text1=text1.strip(),  
+            text2=text2.strip(),  
+            model=model,  
+            url=api_url  
+        )  
+        
+        # API请求配置  
+        payload = {  
+            "model": model,  
+            "prompt": final_prompt,  
+            "stream": False,  
+            "options": {"temperature": temperature}  
+        }  
+
+        try:  
+            response = requests.post(api_url,   
+                json=payload,  
+                headers={"Content-Type": "application/json"},  
+                timeout=30  
+            )  
+            response.raise_for_status()  
+            return (response.json()["response"].strip(),)  
+        except requests.exceptions.RequestException as e:  
+            return (f"Error: {str(e)}",)  
 
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
-    "LoadRandomTxtFileTlant": LoadRandomTxtFileTlant
+    "LoadRandomTxtFileTlant": LoadRandomTxtFileTlant,
+    "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant
 }  
 
 # Define display name for the node  
 NODE_DISPLAY_NAME_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": "Ollama Prompts Generator Tlant",
-    "LoadRandomTxtFileTlant": "Load Random Txt File Tlant"  
+    "LoadRandomTxtFileTlant": "Load Random Txt File Tlant",
+    "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant"
 }
