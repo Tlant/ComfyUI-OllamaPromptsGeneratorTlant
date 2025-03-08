@@ -355,7 +355,10 @@ class LoadRandomTxtFileTlantV3:
                     "default": "false"  
                 }),  
                 # 新增参数 sub_dir_list  
-                "sub_dir_list": ([""], {"default": ""}),  
+                "sub_dir_list": ("STRING", {  
+                    "default": "",  
+                    "multiline": False,  
+                }),   
                 # 新增参数 selected_sub_dir  
                 "selected_sub_dir": ("STRING", {  
                     "default": "",  
@@ -365,25 +368,6 @@ class LoadRandomTxtFileTlantV3:
             },  
         }  
     
-    # 重写get_inputs方法以覆盖验证逻辑  
-    def get_inputs(self, **kwargs):  
-        # 复制传入的参数  
-        inputs = kwargs.copy()  
-        
-        # 跳过sub_dir_list的验证  
-        if "sub_dir_list" in inputs:  
-            value = inputs["sub_dir_list"]  
-            # 即使值不在预定义列表中也允许通过  
-            if isinstance(value, str):  
-                inputs["sub_dir_list"] = value  
-        
-        # 处理其他参数的标准验证  
-        for name, value in kwargs.items():  
-            if name != "sub_dir_list":  
-                # 执行标准验证逻辑  
-                pass  
-        
-        return inputs 
 
     RETURN_TYPES = ("STRING", "STRING", "INT")  
     RETURN_NAMES = ("text", "txt_file", "seed")  
