@@ -2,7 +2,9 @@ import requests
 import os
 import random
 import hashlib  
-
+import json  
+from server import PromptServer
+from aiohttp import web 
 
 class OllamaPromptsGeneratorTlant:  
     """  
@@ -243,11 +245,243 @@ class OllamaSimpleTextGeneratorTlant:
             return (response.json()["response"].strip(),)  
         except requests.exceptions.RequestException as e:  
             return (f"Error: {str(e)}",)  
+        
+        
+class LoadRandomTxtFileTlantV2:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "dir_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "placeholder": "Enter directory path"
+                }),
+                "seed": ("INT", {
+                    "default": 1,
+                    "min": 0,
+                    "max": 0xffffffffffffffff,
+                    "step": 1,
+                    "display": "number"
+                }),
+                "is_recursive": (["true", "false"], {
+                    "default": "false"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "INT")
+    RETURN_NAMES = ("text", "txt_file", "seed")
+    FUNCTION = "read_file"
+    CATEGORY = "Custom Nodes/File Operations"
+
+    def read_file(self, dir_path, seed, is_recursive):
+        txt_files = []
+        is_recursive = (is_recursive == "true")
+
+        try:
+            # 路径有效性验证
+            if not os.path.exists(dir_path):
+                return (f"Directory not exists: {dir_path}", "", seed)
+                
+            if not os.path.isdir(dir_path):
+                return (f"Not a directory: {dir_path}", "", seed)
+
+            # 文件收集逻辑
+            if is_recursive:
+                for root, _, files in os.walk(dir_path):
+                    for file in files:
+                        if file.lower().endswith('.txt'):
+                            full_path = os.path.abspath(os.path.join(root, file))
+                            if os.path.isfile(full_path):
+                                txt_files.append(full_path)
+            else:
+                for file in os.listdir(dir_path):
+                    if file.lower().endswith('.txt'):
+                        full_path = os.path.abspath(os.path.join(dir_path, file))
+                        if os.path.isfile(full_path):
+                            txt_files.append(full_path)
+
+            if not txt_files:
+                return ("No .txt files found in directory", "", seed)
+
+        except PermissionError as e:
+            return (f"Permission denied: {str(e)}", "", seed)
+        except Exception as e:
+            return (f"System error: {str(e)}", "", seed)
+
+        # 随机选择文件
+        random.seed(seed)
+        selected_file = random.choice(txt_files)
+        abs_path = os.path.abspath(selected_file)  # 确保绝对路径
+
+        # 文件读取逻辑
+        try:
+            for encoding in ['utf-8', 'gbk', 'latin-1']:
+                try:
+                    with open(selected_file, 'r', encoding=encoding) as f:
+                        content = f.read()
+                        return (content, abs_path, seed)
+                except UnicodeDecodeError:
+                    continue
+            return ("Failed to decode text file", abs_path, seed)
+        except Exception as e:
+            return (f"File read error: {str(e)}", abs_path, seed)
+        
+class LoadRandomTxtFileTlantV3:  
+    def __init__(self):  
+        self.sub_directories = []  
+    
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        return {  
+            "required": {  
+                "dir_path": ("STRING", {  
+                    "default": "",  
+                    "multiline": False,  
+                    "placeholder": "Enter directory path"  
+                }),  
+                "seed": ("INT", {  
+                    "default": 1,  
+                    "min": 0,  
+                    "max": 0xffffffffffffffff,  
+                    "step": 1,  
+                    "display": "number"  
+                }),  
+                "is_recursive": (["true", "false"], {  
+                    "default": "false"  
+                }),  
+                # 新增参数 sub_dir_list  
+                "sub_dir_list": ([""], {"default": ""}),  
+                # 新增参数 selected_sub_dir  
+                "selected_sub_dir": ("STRING", {  
+                    "default": "",  
+                    "multiline": False,  
+                    "placeholder": "Selected directory path"  
+                }),  
+            },  
+        }  
+    
+    # 重写get_inputs方法以覆盖验证逻辑  
+    def get_inputs(self, **kwargs):  
+        # 复制传入的参数  
+        inputs = kwargs.copy()  
+        
+        # 跳过sub_dir_list的验证  
+        if "sub_dir_list" in inputs:  
+            value = inputs["sub_dir_list"]  
+            # 即使值不在预定义列表中也允许通过  
+            if isinstance(value, str):  
+                inputs["sub_dir_list"] = value  
+        
+        # 处理其他参数的标准验证  
+        for name, value in kwargs.items():  
+            if name != "sub_dir_list":  
+                # 执行标准验证逻辑  
+                pass  
+        
+        return inputs 
+
+    RETURN_TYPES = ("STRING", "STRING", "INT")  
+    RETURN_NAMES = ("text", "txt_file", "seed")  
+    FUNCTION = "read_file"  
+    CATEGORY = "Custom Nodes/File Operations"  
+
+    def read_file(self, dir_path, seed, is_recursive, sub_dir_list="", selected_sub_dir=""):  
+        # 使用 selected_sub_dir 作为实际路径  
+        working_dir = selected_sub_dir if selected_sub_dir else dir_path  
+        
+        txt_files = []  
+        is_recursive = (is_recursive == "true")  
+
+        try:  
+            # 路径有效性验证  
+            if not os.path.exists(working_dir):  
+                return (f"Directory not exists: {working_dir}", "", seed)  
+                
+            if not os.path.isdir(working_dir):  
+                return (f"Not a directory: {working_dir}", "", seed)  
+
+            # 文件收集逻辑  
+            if is_recursive:  
+                for root, _, files in os.walk(working_dir):  
+                    for file in files:  
+                        if file.lower().endswith('.txt'):  
+                            full_path = os.path.abspath(os.path.join(root, file))  
+                            if os.path.isfile(full_path):  
+                                txt_files.append(full_path)  
+            else:  
+                for file in os.listdir(working_dir):  
+                    if file.lower().endswith('.txt'):  
+                        full_path = os.path.abspath(os.path.join(working_dir, file))  
+                        if os.path.isfile(full_path):  
+                            txt_files.append(full_path)  
+
+            if not txt_files:  
+                return ("No .txt files found in directory", "", seed)  
+
+        except PermissionError as e:  
+            return (f"Permission denied: {str(e)}", "", seed)  
+        except Exception as e:  
+            return (f"System error: {str(e)}", "", seed)  
+
+        # 随机选择文件  
+        random.seed(seed)  
+        selected_file = random.choice(txt_files)  
+        abs_path = os.path.abspath(selected_file)  # 确保绝对路径  
+
+        # 文件读取逻辑  
+        try:  
+            for encoding in ['utf-8', 'gbk', 'latin-1']:  
+                try:  
+                    with open(selected_file, 'r', encoding=encoding) as f:  
+                        content = f.read()  
+                        return (content, abs_path, seed)  
+                except UnicodeDecodeError:  
+                    continue  
+            return ("Failed to decode text file", abs_path, seed)  
+        except Exception as e:  
+            return (f"File read error: {str(e)}", abs_path, seed)  
+
+# 注册 API 路由来处理文件夹加载请求  
+@PromptServer.instance.routes.post("/get_subdirectories")  
+async def get_subdirectories(request):  
+    data = await request.json()  
+    base_dir = data.get("dir_path", "")  
+    
+    if not base_dir or not os.path.exists(base_dir) or not os.path.isdir(base_dir):  
+        # 使用web.json_response返回JSON数据  
+        return web.json_response({"subdirs": [""]})  
+    
+    subdirs = [""]  # 包含空选项，代表根目录自身  
+    
+    try:  
+        # 遍历所有子目录  
+        for root, dirs, _ in os.walk(base_dir):  
+            for dir_name in dirs:  
+                full_path = os.path.join(root, dir_name)  
+                # 计算相对路径  
+                rel_path = os.path.relpath(full_path, base_dir)  
+                # 使用标准的路径分隔符  
+                std_rel_path = rel_path.replace("\\", "/")  
+                subdirs.append(std_rel_path)  
+    except Exception as e:  
+        print(f"Error getting subdirectories: {str(e)}")  
+    
+    # 使用web.json_response返回JSON数据  
+    return web.json_response({"subdirs": sorted(subdirs)})  
+    return {"subdirs": sorted(subdirs)}  
+
 
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
     "LoadRandomTxtFileTlant": LoadRandomTxtFileTlant,
+    "LoadRandomTxtFileTlantV2": LoadRandomTxtFileTlantV2,
+    "LoadRandomTxtFileTlantV3": LoadRandomTxtFileTlantV3,
     "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant
 }  
 
@@ -255,5 +489,9 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": "Ollama Prompts Generator Tlant",
     "LoadRandomTxtFileTlant": "Load Random Txt File Tlant",
+    "LoadRandomTxtFileTlantV2": "Load Random Txt File Tlant V2",
+    "LoadRandomTxtFileTlantV3": "Load Random Text File V3",
     "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant"
 }
+
+WEB_DIRECTORY = "./web"  
