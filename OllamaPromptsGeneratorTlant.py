@@ -5,6 +5,12 @@ import hashlib
 import json  
 from server import PromptServer
 from aiohttp import web 
+import folder_paths  
+import numpy as np  
+import torch  
+import re
+from PIL import Image, ImageOps
+
 
 class OllamaPromptsGeneratorTlant:  
     """  
@@ -460,13 +466,275 @@ async def get_subdirectories(request):
     return {"subdirs": sorted(subdirs)}  
 
 
+class LoadImageAndExtractMetadataTlant:  
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        return {  
+            "required": {  
+                # 删除默认为None的设置，因为ComfyUI可能不接受这种形式  
+            },  
+            "optional": {  
+                "image_path": ("STRING", {"default": ""})  
+            }  
+        }  
+    
+    CATEGORY = "image"  
+    FUNCTION = "load_image_and_extract_metadata"  
+    RETURN_TYPES = ("IMAGE", "STRING", "JSON")  # JSON类型需要ComfyUI支持，若不支持请改为STRING  
+    RETURN_NAMES = ("image", "image_path", "metadata_json")  
+    
+    # 这个方法允许节点显示上传按钮  
+    @classmethod  
+    def IS_CHANGED(cls, image_path):  
+        if image_path != "":  
+            m = hashlib.md5()  
+            with open(image_path, 'rb') as f:  
+                m.update(f.read())  
+            return m.digest().hex()  
+        return ""  
+    
+    # 这个方法处理上传的图片  
+    @classmethod  
+    def UPLOAD_HANDLER(cls, file):  
+        filename = os.path.basename(file.orig_name)  
+        
+        # 保存上传的文件到ComfyUI的临时目录  
+        temp_dir = folder_paths.get_temp_directory()  
+        file_path = os.path.join(temp_dir, filename)  
+        
+        with open(file_path, "wb") as f:  
+            f.write(file.file.read())  
+        
+        return {"image_path": file_path}  
+    
+    def load_image_and_extract_metadata(self, image_path=""):  
+        # 如果提供了图像路径，从路径加载图像  
+        if image_path == "":  
+            raise ValueError("No image path provided")  
+            
+        if not os.path.exists(image_path):  
+            raise FileNotFoundError(f"Image not found: {image_path}")  
+        
+        i = Image.open(image_path)  
+        i = ImageOps.exif_transpose(i)  
+        image = i.convert("RGB")  
+        image = np.array(image).astype(np.float32) / 255.0  
+        image = torch.from_numpy(image)[None,]  
+        
+        # 提取元数据  
+        metadata_json = self.extract_metadata_from_image(image_path)  
+        
+        return (image, image_path, metadata_json)  
+    
+    def extract_metadata_from_image(self, image_path):  
+        if image_path is None:  
+            return "{}"  
+        
+        try:  
+            # 打开PNG图像  
+            img = Image.open(image_path)  
+            
+            # 尝试获取PNG文本块中的元数据  
+            metadata = None  
+            if "parameters" in img.info:  
+                metadata = img.info["parameters"]  
+            elif "prompt" in img.info:  
+                metadata = img.info["prompt"]  
+            # ComfyUI通常在"workflow"键中存储工作流  
+            elif "workflow" in img.info:  
+                metadata = img.info["workflow"]  
+            # 有些版本可能使用"ComfyUI"键  
+            elif "ComfyUI" in img.info:  
+                metadata = img.info["ComfyUI"]  
+            else:  
+                # 尝试获取所有可用的元数据  
+                metadata = json.dumps(img.info)  
+            
+            return metadata  
+        except Exception as e:  
+            print(f"Error extracting metadata: {e}")  
+            return "{}"  
+        
+
+class RandomImageLoaderTlant:
+    """
+    ComfyUI自定义节点：从指定路径随机加载图片
+    """
+    
+    def __init__(self):
+        pass
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "path": ("STRING", {
+                    "default": "", 
+                    "multiline": False,
+                    "placeholder": "输入图片文件夹路径"
+                }),
+                "recursive": ("BOOLEAN", {
+                    "default": True,
+                    "label_on": "递归搜索",
+                    "label_off": "仅当前目录"
+                }),
+                "is_fixed": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "固定图片",
+                    "label_off": "每次随机"
+                }),
+            },
+        }
+    
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "file_path")
+    FUNCTION = "load_random_image"
+    CATEGORY = "image/utils"
+    
+    @classmethod
+    def IS_CHANGED(cls, path, recursive, is_fixed):
+        """
+        控制节点是否重新执行
+        """
+        if is_fixed:
+            # 固定模式：返回固定值，避免重新执行
+            return f"fixed_{path}_{recursive}"
+        else:
+            # 随机模式：返回时间戳，确保每次都重新执行
+            return str(random.random()) 
+    
+    def get_image_files(self, path, recursive=True):
+        """
+        获取指定路径下的所有图片文件
+        """
+        if not os.path.exists(path):
+            raise ValueError(f"路径不存在: {path}")
+        
+        if not os.path.isdir(path):
+            raise ValueError(f"指定路径不是文件夹: {path}")
+        
+        # 支持的图片格式
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp', '.gif'}
+        image_files = []
+        
+        if recursive:
+            # 递归搜索所有子文件夹
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    if os.path.splitext(file.lower())[1] in image_extensions:
+                        image_files.append(os.path.join(root, file))
+        else:
+            # 仅搜索当前目录
+            for file in os.listdir(path):
+                file_path = os.path.join(path, file)
+                if os.path.isfile(file_path) and os.path.splitext(file.lower())[1] in image_extensions:
+                    image_files.append(file_path)
+        
+        return image_files
+    
+    def load_image_to_tensor(self, image_path):
+        """
+        加载图片并转换为ComfyUI需要的tensor格式
+        """
+        try:
+            # 使用PIL加载图片
+            image = Image.open(image_path)
+            
+            # 转换为RGB模式（去除alpha通道）
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # 修正图片方向（根据EXIF信息）
+            image = ImageOps.exif_transpose(image)
+            
+            # 转换为numpy数组
+            image_np = np.array(image).astype(np.float32) / 255.0
+            
+            # 转换为torch tensor，并添加batch维度
+            # ComfyUI期望的格式是 [batch, height, width, channels]
+            image_tensor = torch.from_numpy(image_np)[None,]
+            
+            return image_tensor
+            
+        except Exception as e:
+            raise ValueError(f"无法加载图片 {image_path}: {str(e)}")
+    
+    def load_random_image(self, path, recursive, is_fixed):
+        """
+        主要功能函数：随机加载图片
+        """
+        try:
+            # 获取所有图片文件
+            image_files = self.get_image_files(path, recursive)
+            
+            if not image_files:
+                raise ValueError(f"在路径 {path} 中未找到任何图片文件")
+            
+            # 随机选择一个图片文件
+            selected_image = random.choice(image_files)
+            
+            # 获取绝对路径
+            absolute_path = os.path.abspath(selected_image)
+            
+            # 加载图片
+            image_tensor = self.load_image_to_tensor(selected_image)
+            
+            mode = "固定图片" if is_fixed else "随机加载"
+            print(f"{mode}: {absolute_path}")
+            
+            return (image_tensor, absolute_path)
+            
+        except Exception as e:
+            # 创建一个错误占位图片
+            error_image = torch.zeros((1, 512, 512, 3), dtype=torch.float32)
+            error_message = f"错误: {str(e)}"
+            print(error_message)
+            return (error_image, error_message)
+        
+class ReasoningLLMOutputCleaner:  
+    """  
+    A ComfyUI node to clean a string by removing <think>...</think> tags and stripping whitespace.  
+    """  
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        """  
+        Defines the input types for the node.  
+        """  
+        return {  
+            "required": {  
+                "text": ("STRING", {"multiline": True, "default": ""}),  
+            }  
+        }  
+
+    RETURN_TYPES = ("STRING",)  
+    RETURN_NAMES = ("cleaned_text",)  
+    FUNCTION = "clean"  
+    CATEGORY = "Gemini"  
+
+    def clean(self, text):  
+        """  
+        The main function of the node.  
+        It removes the content within <think></think> tags and strips surrounding whitespace.  
+        """  
+        # Use re.DOTALL to make '.' match newlines as well  
+        # Use a non-greedy match '.*?' to handle multiple tags if they were to exist  
+        cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)  
+        
+        # strip() removes leading/trailing whitespace, including newlines  
+        cleaned_text = cleaned_text.strip()  
+        
+        return (cleaned_text,)  
+
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
     "LoadRandomTxtFileTlant": LoadRandomTxtFileTlant,
     "LoadRandomTxtFileTlantV2": LoadRandomTxtFileTlantV2,
     "LoadRandomTxtFileTlantV3": LoadRandomTxtFileTlantV3,
-    "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant
+    "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant,
+    "LoadImageAndExtractMetadataTlant": LoadImageAndExtractMetadataTlant,
+    "RandomImageLoaderTlant": RandomImageLoaderTlant,
+    "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner
 }  
 
 # Define display name for the node  
@@ -475,7 +743,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadRandomTxtFileTlant": "Load Random Txt File Tlant",
     "LoadRandomTxtFileTlantV2": "Load Random Txt File Tlant V2",
     "LoadRandomTxtFileTlantV3": "Load Random Text File V3",
-    "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant"
+    "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant",
+    "LoadImageAndExtractMetadataTlant": "Load Image & Extract Metadata",
+    "RandomImageLoaderTlant": "Random Image Loader Tlant",
+    "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner" 
 }
 
 WEB_DIRECTORY = "./web"  
