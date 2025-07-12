@@ -781,7 +781,7 @@ class SaveImagePairForKontext:
             # 构造最终的文件基础名 (不含扩展名)  
             # 如果是批处理，添加数字后缀  
             if image.shape[0] > 1:  
-                current_base_name = f"{prefix}{base_name}{suffix}_{i:03d}"  
+                current_base_name = f"{prefix}{base_name}{suffix}_{i:08d}"  
             else:  
                 current_base_name = f"{prefix}{base_name}{suffix}"  
 
