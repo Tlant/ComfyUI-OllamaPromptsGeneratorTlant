@@ -725,6 +725,97 @@ class ReasoningLLMOutputCleaner:
         
         return (cleaned_text,)  
 
+
+class SaveImagePairForKontext:  
+    """  
+    一个ComfyUI节点，用于保存图像及其关联的文本文件。  
+    该节点接收一张图像、保存路径、文件名、可选的前后缀以及文本内容。  
+    它会将图像保存到指定位置，并根据文本内容是否存在，选择性地保存一个同名的.txt文件。  
+    """  
+    def __init__(self):  
+        pass  
+
+    @classmethod  
+    def INPUT_TYPES(s):  
+        """  
+        定义节点的输入参数类型和属性。  
+        """  
+        return {  
+            "required": {  
+                "image": ("IMAGE", ),  
+                "path": ("STRING", {"default": "D:/ComfyUI/output"}),  
+                "filename": ("STRING", {"default": "image.png"}),  
+                "prefix": ("STRING", {"default": ""}),  
+                "suffix": ("STRING", {"default": ""}),  
+                "text": ("STRING", {"multiline": True, "default": ""}),  
+            },  
+        }  
+
+    RETURN_TYPES = ()  # 此节点不返回任何输出  
+    FUNCTION = "save_image_pair"  
+    OUTPUT_NODE = True # 标记为输出节点  
+    CATEGORY = "image" # 在UI中的分类  
+
+    def save_image_pair(self, image: torch.Tensor, path: str, filename: str, text: str, prefix: str = "", suffix: str = ""):  
+        """  
+        核心功能实现方法。  
+        
+        Args:  
+            image (torch.Tensor): 输入的图像张量，格式为 (batch, height, width, channel)。  
+            path (str): 图像和文本文件的保存目录。  
+            filename (str): 基础文件名 (可以包含扩展名)。  
+            text (str): 要写入 .txt 文件的内容。如果为空，则不保存txt文件。  
+            prefix (str, optional): 文件名前缀. Defaults to "".  
+            suffix (str, optional): 文件名后缀. Defaults to "".  
+        """  
+        # 检查并创建输出目录  
+        if not os.path.exists(path):  
+            print(f"路径 {path} 不存在，正在创建...")  
+            os.makedirs(path, exist_ok=True)  
+
+        # 分离基础文件名和扩展名  
+        base_name, extension = os.path.splitext(filename)  
+        
+        # 处理图像批次  
+        for i, single_image in enumerate(image):  
+            # 构造最终的文件基础名 (不含扩展名)  
+            # 如果是批处理，添加数字后缀  
+            if image.shape[0] > 1:  
+                current_base_name = f"{prefix}{base_name}{suffix}_{i:03d}"  
+            else:  
+                current_base_name = f"{prefix}{base_name}{suffix}"  
+
+            # 构造完整的图像文件路径  
+            image_file_path = os.path.join(path, f"{current_base_name}{extension}")  
+
+            # 将Tensor图像转换为Pillow图像  
+            # 1. 从Tensor转换到Numpy数组  
+            # 2. 将像素值从 [0, 1] 范围转换到 [0, 255]  
+            # 3. 转换为 uint8 类型  
+            img_np = np.clip(255. * single_image.cpu().numpy(), 0, 255).astype(np.uint8)  
+            
+            # 4. 从Numpy数组创建Pillow Image对象  
+            pil_image = Image.fromarray(img_np)  
+            
+            # 5. 保存图像  
+            pil_image.save(image_file_path)  
+            print(f"成功保存图片到: {image_file_path}")  
+
+            # 如果文本内容不为空，则保存同名的txt文件  
+            # 使用strip()来确保内容不只是空白字符  
+            if text and text.strip():  
+                text_file_path = os.path.join(path, f"{current_base_name}.txt")  
+                try:  
+                    with open(text_file_path, 'w', encoding='utf-8') as f:  
+                        f.write(text)  
+                    print(f"成功保存文本文件到: {text_file_path}")  
+                except IOError as e:  
+                    print(f"错误：无法写入文本文件 {text_file_path}: {e}")  
+
+        return {} # 输出节点需要返回一个空字典  
+
+
+
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
@@ -734,7 +825,8 @@ NODE_CLASS_MAPPINGS = {
     "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant,
     "LoadImageAndExtractMetadataTlant": LoadImageAndExtractMetadataTlant,
     "RandomImageLoaderTlant": RandomImageLoaderTlant,
-    "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner
+    "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner,
+    "SaveImagePairForKontext": SaveImagePairForKontext
 }  
 
 # Define display name for the node  
@@ -746,7 +838,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant",
     "LoadImageAndExtractMetadataTlant": "Load Image & Extract Metadata",
     "RandomImageLoaderTlant": "Random Image Loader Tlant",
-    "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner" 
+    "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner",
+    "SaveImagePairForKontext": "Save Image w/ Text"
 }
 
 WEB_DIRECTORY = "./web"  
