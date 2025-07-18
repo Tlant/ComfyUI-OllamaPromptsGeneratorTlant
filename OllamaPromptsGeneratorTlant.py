@@ -899,6 +899,69 @@ class StringFormatterTlant:
         return (formatted_text,)
 
 
+class LoadSpecificTxtFileTlant:  
+    """  
+    这是一个 ComfyUI 自定义节点，用于从指定的 .txt 文件路径加载文本内容。  
+    """  
+    
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        """  
+        定义节点的输入类型。  
+        - required: 定义了节点的必需输入。  
+        - file_path: 一个字符串输入字段，用于指定文本文件的路径。  
+                     "default" 设置了输入框中的默认提示文本。  
+        """  
+        return {  
+            "required": {  
+                "file_path": ("STRING", {  
+                    "multiline": False, # 设置为单行输入  
+                    "default": "C:\\path\\to\\your\\file.txt"  
+                }),  
+            },  
+        }  
+
+    # 定义节点的返回类型  
+    RETURN_TYPES = ("STRING",)  
+    
+    # 定义节点的返回名称（可选，用于UI显示）  
+    RETURN_NAMES = ("text",)  
+
+    # 定义节点执行的主要功能  
+    FUNCTION = "load_text_file"  
+
+    # 定义节点在 ComfyUI 菜单中的分类  
+    CATEGORY = "Tlant"  
+
+    def load_text_file(self, file_path):  
+        """  
+        加载并返回文本文件的内容。  
+        
+        Args:  
+            file_path (str): 用户在UI中输入的文本文件路径。  
+            
+        Returns:  
+            tuple: 包含文件内容的元组 (text,)。如果文件不存在或读取失败，  
+                   将返回一个包含错误信息的字符串。  
+        """  
+        # 检查文件路径是否存在并且确实是一个文件  
+        if not os.path.isfile(file_path):  
+            error_message = f"Error: File not found at the specified path: {file_path}"  
+            print(error_message)  
+            return (error_message,)  
+
+        try:  
+            # 使用 utf-8 编码打开并读取文件内容  
+            with open(file_path, 'r', encoding='utf-8') as f:  
+                text = f.read()  
+            # ComfyUI 的函数返回值必须是一个元组  
+            return (text,)  
+        except Exception as e:  
+            # 捕获其他可能的读取错误  
+            error_message = f"Error reading file '{file_path}': {e}"  
+            print(error_message)  
+            return (error_message,)  
+
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
@@ -910,7 +973,8 @@ NODE_CLASS_MAPPINGS = {
     "RandomImageLoaderTlant": RandomImageLoaderTlant,
     "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner,
     "SaveImagePairForKontext": SaveImagePairForKontext,
-    "StringFormatterTlant": StringFormatterTlant
+    "StringFormatterTlant": StringFormatterTlant,
+    "LoadSpecificTxtFileTlant": LoadSpecificTxtFileTlant
 }  
 
 # Define display name for the node  
@@ -924,7 +988,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RandomImageLoaderTlant": "Random Image Loader Tlant",
     "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner",
     "SaveImagePairForKontext": "Save Image Pair Text",
-    "StringFormatterTlant": "String Formatter Tlant"
+    "StringFormatterTlant": "String Formatter Tlant",
+    "LoadSpecificTxtFileTlant": "Load Specific Txt File Tlant"
 }
 
 WEB_DIRECTORY = "./web"  
