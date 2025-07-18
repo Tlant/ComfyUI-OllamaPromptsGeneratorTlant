@@ -815,6 +815,89 @@ class SaveImagePairForKontext:
         return {} # 输出节点需要返回一个空字典  
 
 
+class StringFormatterTlant:
+    """
+    A custom node for ComfyUI that formats a template string with multiple inputs.
+    It replaces placeholders '{}' with provided parameters in order.
+    It gracefully handles empty or missing parameters to prevent errors.
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        """
+        Defines the input types for the node.
+        """
+        # Define up to 10 parameters. 
+        # In the UI, users can right-click the node and select which optional inputs to show.
+        # This is the standard ComfyUI way to handle a variable number of inputs without a dynamic "add" button.
+        optional_params = {}
+        for i in range(3, 11): # param3 to param10 are optional
+            optional_params[f"param{i}"] = ("STRING", {"multiline": False, "default": ""})
+
+        return {
+            "required": {
+                "template": ("STRING", {
+                    "multiline": True,
+                    "default": "A {adj} {noun} in the style of {artist}."
+                }),
+                "param1": ("STRING", {"multiline": False, "default": "beautiful"}),
+                "param2": ("STRING", {"multiline": False, "default": "landscape"}),
+            },
+            "optional": optional_params
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("formatted_string",)
+    FUNCTION = "format"
+    CATEGORY = "utils"
+
+    def format(self, template, **kwargs):
+        """
+        The main execution function of the node.
+        
+        Args:
+            template (str): The string template with placeholders like {}.
+            **kwargs: A dictionary containing all connected parameters (param1, param2, ...).
+        
+        Returns:
+            A tuple containing the formatted string.
+        """
+        # Collect all parameters in the correct order (param1, param2, param3, ...)
+        # We sort by the key to ensure the order is always correct.
+        params = []
+        # The number of maximum supported params is 10 as defined in INPUT_TYPES
+        for i in range(1, 11):
+            key = f"param{i}"
+            if key in kwargs:
+                # Handle potential None values from unconnected inputs, default to empty string
+                value = kwargs[key]
+                params.append(value if value is not None else "")
+
+        # --- Exception Handling ---
+        # Count the number of placeholders in the template
+        num_placeholders = template.count('{}')
+
+        # Pad the parameters list with empty strings if there are more placeholders than params.
+        # This prevents an IndexError when format() is called.
+        if len(params) < num_placeholders:
+            padding_needed = num_placeholders - len(params)
+            params.extend([""] * padding_needed)
+
+        # The .format() method will automatically ignore extra parameters if there are
+        # fewer placeholders than provided params, so we don't need to handle that case explicitly.
+
+        try:
+            # Perform the string formatting
+            formatted_text = template.format(*params)
+        except (IndexError, ValueError) as e:
+            # Fallback in case of unexpected formatting errors
+            print(f"\033[91m[StringFormatter] Error formatting string: {e}\033[0m")
+            print(f"\033[91m[StringFormatter] Template: '{template}', Params: {params}\033[0m")
+            # Return the original template as a safe fallback
+            formatted_text = template
+
+        # The node must return a tuple
+        return (formatted_text,)
+
 
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
@@ -826,7 +909,8 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageAndExtractMetadataTlant": LoadImageAndExtractMetadataTlant,
     "RandomImageLoaderTlant": RandomImageLoaderTlant,
     "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner,
-    "SaveImagePairForKontext": SaveImagePairForKontext
+    "SaveImagePairForKontext": SaveImagePairForKontext,
+    "StringFormatterTlant": StringFormatterTlant
 }  
 
 # Define display name for the node  
@@ -839,7 +923,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageAndExtractMetadataTlant": "Load Image & Extract Metadata",
     "RandomImageLoaderTlant": "Random Image Loader Tlant",
     "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner",
-    "SaveImagePairForKontext": "Save Image w/ Text"
+    "SaveImagePairForKontext": "Save Image Pair Text",
+    "StringFormatterTlant": "String Formatter Tlant"
 }
 
 WEB_DIRECTORY = "./web"  
