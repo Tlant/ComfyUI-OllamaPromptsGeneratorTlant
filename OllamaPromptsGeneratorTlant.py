@@ -962,6 +962,112 @@ class LoadSpecificTxtFileTlant:
             print(error_message)  
             return (error_message,)  
 
+
+class LoadSequencedTxtFileTlant:  
+    """  
+    这是一个ComfyUI自定义节点，它按顺序从指定目录读取文本文件。  
+    V2版本简化了输入，并增加了文件名作为输出。  
+
+    功能：  
+    - 遍历指定目录（可递归）以查找所有.txt文件。  
+    - 对找到的文件名进行升序排序。  
+    - 使用'txt_index'参数作为索引来选择文件，超过文件总数则取余。  
+    - 输出所选文件的内容、完整路径以及不带路径的文件名。  
+    """  
+    @classmethod  
+    def INPUT_TYPES(cls):  
+        """  
+        定义节点的输入参数。  
+        """  
+        return {  
+            "required": {  
+                "dir_path": ("STRING", {  
+                    "default": "",  
+                    "multiline": False,  
+                    "placeholder": "Enter directory path"  
+                }),  
+                "txt_index": ("INT", {  
+                    "default": 0,  
+                    "min": 0,  
+                    "max": 0xffffffffffffffff,  
+                    "step": 1,  
+                    "display": "number"  
+                }),  
+                "is_recursive": (["true", "false"], {  
+                    "default": "false"  
+                }),  
+            },  
+        }  
+
+    # 定义节点的返回类型  
+    RETURN_TYPES = ("STRING", "STRING", "STRING")  
+    # 定义节点的返回名称  
+    RETURN_NAMES = ("text", "txt_file_path", "txt_filename")  
+    FUNCTION = "read_file_sequentially"  
+    CATEGORY = "Tlant/File Operations"  
+
+    def read_file_sequentially(self, dir_path, txt_index, is_recursive):  
+        working_dir = dir_path  
+        txt_files = []  
+        is_recursive_bool = (is_recursive == "true")  
+
+        try:  
+            # 路径有效性验证  
+            if not os.path.exists(working_dir):  
+                return (f"Directory does not exist: {working_dir}", "", "")  
+            if not os.path.isdir(working_dir):  
+                return (f"Path is not a directory: {working_dir}", "", "")  
+
+            # 文件收集逻辑  
+            if is_recursive_bool:  
+                for root, _, files in os.walk(working_dir):  
+                    for file in files:  
+                        if file.lower().endswith('.txt'):  
+                            full_path = os.path.abspath(os.path.join(root, file))  
+                            txt_files.append(full_path)  
+            else:  
+                for item in os.listdir(working_dir):  
+                    full_path = os.path.abspath(os.path.join(working_dir, item))  
+                    if os.path.isfile(full_path) and item.lower().endswith('.txt'):  
+                        txt_files.append(full_path)  
+
+            if not txt_files:  
+                return ("No .txt files found in the specified directory.", "", "")  
+
+        except PermissionError as e:  
+            return (f"Permission denied: {str(e)}", "", "")  
+        except Exception as e:  
+            return (f"System error during file search: {str(e)}", "", "")  
+
+        # 核心逻辑：排序并按索引选择  
+        txt_files.sort()  # 按文件名升序排序  
+        
+        # 使用模运算（取余）来选择文件，实现循环  
+        selected_index = txt_index % len(txt_files)  
+        selected_file_path = txt_files[selected_index]  
+        
+        # 新增：获取不带路径的文件名  
+        selected_filename = os.path.basename(selected_file_path)  
+
+        # 文件读取逻辑，尝试多种编码  
+        try:  
+            content = ""  
+            for encoding in ['utf-8', 'gbk', 'latin-1']:  
+                try:  
+                    with open(selected_file_path, 'r', encoding=encoding) as f:  
+                        content = f.read()  
+                    # 成功读取后，返回内容、完整路径和纯文件名  
+                    return (content, selected_file_path, selected_filename)  
+                except UnicodeDecodeError:  
+                    continue # 编码不匹配，尝试下一种  
+            
+            # 如果所有编码都失败  
+            error_msg = f"Failed to decode file '{selected_filename}' with common encodings."  
+            return (error_msg, selected_file_path, selected_filename)  
+
+        except Exception as e:  
+            return (f"File read error: {str(e)}", selected_file_path, selected_filename)  
+
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
@@ -974,7 +1080,8 @@ NODE_CLASS_MAPPINGS = {
     "ReasoningLLMOutputCleaner": ReasoningLLMOutputCleaner,
     "SaveImagePairForKontext": SaveImagePairForKontext,
     "StringFormatterTlant": StringFormatterTlant,
-    "LoadSpecificTxtFileTlant": LoadSpecificTxtFileTlant
+    "LoadSpecificTxtFileTlant": LoadSpecificTxtFileTlant,
+    "LoadSequencedTxtFileTlant": LoadSequencedTxtFileTlant
 }  
 
 # Define display name for the node  
@@ -989,7 +1096,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ReasoningLLMOutputCleaner": "Reasoning LLM Output Cleaner",
     "SaveImagePairForKontext": "Save Image Pair Text",
     "StringFormatterTlant": "String Formatter Tlant",
-    "LoadSpecificTxtFileTlant": "Load Specific Txt File Tlant"
+    "LoadSpecificTxtFileTlant": "Load Specific Txt File Tlant",
+    "LoadSequencedTxtFileTlant": "Load Sequenced Txt File Tlant"
 }
 
 WEB_DIRECTORY = "./web"  
