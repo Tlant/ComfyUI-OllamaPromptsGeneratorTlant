@@ -9,6 +9,8 @@ import folder_paths
 import numpy as np  
 import torch  
 import re
+import base64
+import io
 from PIL import Image, ImageOps
 
 
@@ -1068,6 +1070,334 @@ class LoadSequencedTxtFileTlant:
         except Exception as e:  
             return (f"File read error: {str(e)}", selected_file_path, selected_filename)  
 
+
+class OpenRouterApiTlantV1:
+    """
+    ComfyUI node for calling OpenRouter API with built-in caching support.
+    Only re-executes when inputs actually change; use seed to force refresh.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model_name": ("STRING", {
+                    "default": "xiaomi/mimo-v2-flash",
+                    "multiline": False,
+                    "tooltip": "OpenRouter model identifier, e.g. google/gemini-2.5-pro-preview"
+                }),
+                "base_url": ("STRING", {
+                    "default": "https://openrouter.ai/api/v1/chat/completions",
+                    "multiline": False,
+                    "tooltip": "API endpoint URL"
+                }),
+                "api_key": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "OpenRouter API key (sk-or-v1-...)"
+                }),
+                "system_prompt": ("STRING", {
+                    "default": "You are a helpful assistant.",
+                    "multiline": True,
+                    "tooltip": "System prompt to set model behavior"
+                }),
+                "user_prompt": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "User prompt / instruction"
+                }),
+                "temperature": ("FLOAT", {
+                    "default": 0.7,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.05,
+                    "tooltip": "Controls randomness. Lower = more deterministic"
+                }),
+                "max_tokens": ("INT", {
+                    "default": 2048,
+                    "min": 1,
+                    "max": 128000,
+                    "step": 64,
+                    "tooltip": "Maximum number of tokens in the response"
+                }),
+                "seed": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 0xFFFFFFFFFFFFFFFF,
+                    "tooltip": "Change seed to force re-execution; keep fixed to use cache"
+                }),
+                "remove_think_tags": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Remove <think>...</think> and <thinking>...</thinking> blocks from output"
+                }),
+            },
+            "optional": {
+                "proxy_url": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Optional proxy. e.g. http://127.0.0.1:1080 or socks5://127.0.0.1:1080"
+                }),
+                "images": ("IMAGE", {
+                    "tooltip": "Optional image input for vision models. Supports batch."
+                }),
+                "user_prompt_input": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "External user prompt input, will be appended to user_prompt"
+                }),
+                "system_prompt_input": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "External system prompt input, will be appended to system_prompt"
+                }),
+                "top_p": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": "Nucleus sampling threshold"
+                }),
+                "timeout": ("INT", {
+                    "default": 300,
+                    "min": 10,
+                    "max": 1200,
+                    "step": 10,
+                    "tooltip": "Request timeout in seconds"
+                }),
+                "image_detail": (["auto", "low", "high"], {
+                    "default": "auto",
+                    "tooltip": "Image detail level for vision models"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING",)
+    RETURN_NAMES = ("response_text", "reasoning_content",)
+    OUTPUT_TOOLTIPS = (
+        "The model's text response",
+        "Reasoning content returned by reasoning models (if available)",
+    )
+    FUNCTION = "execute"
+    CATEGORY = "Tlant/API"
+    DESCRIPTION = "Call OpenRouter API with automatic caching. Same inputs + same seed = skip API call."
+
+    # ------------------------------------------------------------------ #
+    #                        Main execution                               #
+    # ------------------------------------------------------------------ #
+    def execute(
+        self,
+        model_name,
+        base_url,
+        api_key,
+        system_prompt,
+        user_prompt,
+        temperature,
+        max_tokens,
+        seed,
+        remove_think_tags,
+        proxy_url="",
+        images=None,
+        user_prompt_input=None,
+        system_prompt_input=None,
+        top_p=1.0,
+        timeout=300,
+        image_detail="auto",
+    ):
+        # ---- 合并 prompt ---- #
+        final_system = self._merge_text(system_prompt, system_prompt_input)
+        final_user = self._merge_text(user_prompt, user_prompt_input)
+
+        if not final_user.strip() and images is None:
+            return ("", "",)
+
+        # ---- 构建 messages ---- #
+        messages = []
+        if final_system.strip():
+            messages.append({"role": "system", "content": final_system})
+
+        user_content = self._build_user_content(final_user, images, image_detail)
+        messages.append({"role": "user", "content": user_content})
+
+        # ---- 构建请求 ---- #
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/comfyanonymous/ComfyUI",
+            "X-Title": "ComfyUI-OpenRouter-Tlant",
+        }
+
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+        }
+
+        # ---- 代理设置 ---- #
+        proxies = None
+        if proxy_url and proxy_url.strip():
+            p = proxy_url.strip()
+            proxies = {"http": p, "https": p}
+
+        # ---- 发送请求 ---- #
+        try:
+            print(f"[OpenRouterTlant] Calling model: {model_name}")
+            resp = requests.post(
+                url=base_url.strip(),
+                headers=headers,
+                json=payload,
+                proxies=proxies,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        except requests.exceptions.Timeout:
+            error_msg = f"[OpenRouterTlant] Request timed out after {timeout}s"
+            print(error_msg)
+            return (error_msg, "",)
+        except requests.exceptions.RequestException as e:
+            error_msg = f"[OpenRouterTlant] Request failed: {e}"
+            # 尝试提取 API 返回的错误信息
+            try:
+                err_body = resp.json()
+                error_msg += f"\nAPI response: {json.dumps(err_body, ensure_ascii=False, indent=2)}"
+            except Exception:
+                pass
+            print(error_msg)
+            return (error_msg, "",)
+
+        # ---- 解析响应 ---- #
+        response_text, reasoning_content = self._parse_response(result)
+
+        # ---- 打印用量信息 ---- #
+        usage = result.get("usage", {})
+        if usage:
+            print(f"[OpenRouterTlant] Tokens  prompt: {usage.get('prompt_tokens', '?')}  "
+                  f"completion: {usage.get('completion_tokens', '?')}  "
+                  f"total: {usage.get('total_tokens', '?')}")
+
+        # ---- 移除 think 标签 ---- #
+        if remove_think_tags and response_text:
+            response_text = self._strip_think_tags(response_text)
+
+        return (response_text, reasoning_content,)
+
+    # ------------------------------------------------------------------ #
+    #                     IS_CHANGED — 缓存控制核心                        #
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        """
+        使用 **kwargs 接收所有参数，避免因 optional 参数缺失导致签名不匹配。
+        """
+        h = hashlib.sha256()
+
+        try:
+            for key in sorted(kwargs.keys()):
+                val = kwargs[key]
+                if key == "images" and val is not None:
+                    # 图片用 shape + sum 做指纹
+                    h.update(f"images_shape={val.shape}".encode("utf-8"))
+                    h.update(f"images_sum={val.sum().item()}".encode("utf-8"))
+                else:
+                    h.update(f"{key}={val}".encode("utf-8"))
+
+            result = h.hexdigest()
+            print(f"[OpenRouterTlant] IS_CHANGED hash: {result}")
+            print(f"[OpenRouterTlant] IS_CHANGED keys: {sorted(kwargs.keys())}")
+            return result
+
+        except Exception as e:
+            print(f"[OpenRouterTlant] IS_CHANGED EXCEPTION: {e}")
+            import traceback
+            traceback.print_exc()
+            # 出异常就返回固定值，避免重复执行
+            return "error_fallback_fixed"
+
+    # ------------------------------------------------------------------ #
+    #                          Helper methods                             #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _merge_text(base_text: str, extra_text: str | None) -> str:
+        """合并两段文本"""
+        parts = []
+        if base_text and base_text.strip():
+            parts.append(base_text)
+        if extra_text and extra_text.strip():
+            parts.append(extra_text)
+        return "\n".join(parts) if parts else ""
+
+    @staticmethod
+    def _image_to_base64(img_tensor) -> str:
+        """将单张 ComfyUI IMAGE tensor (H,W,C float32 0~1) 转为 base64 PNG"""
+        img_np = (img_tensor.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+        img_pil = Image.fromarray(img_np)
+        buffer = io.BytesIO()
+        img_pil.save(buffer, format="PNG", optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    def _build_user_content(self, text: str, images, image_detail: str):
+        """构建 user message 的 content 字段"""
+        if images is None:
+            return text
+
+        # 多模态内容：先放图片，再放文本
+        content_parts = []
+        for i in range(images.shape[0]):
+            img_b64 = self._image_to_base64(images[i])
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{img_b64}",
+                    "detail": image_detail,
+                }
+            })
+        if text.strip():
+            content_parts.append({"type": "text", "text": text})
+        return content_parts
+
+    @staticmethod
+    def _parse_response(result: dict) -> tuple[str, str]:
+        """从 API 响应中提取文本和推理内容"""
+        choices = result.get("choices", [])
+        if not choices:
+            error_info = result.get("error", {})
+            if error_info:
+                return (f"API Error: {json.dumps(error_info, ensure_ascii=False)}", "")
+            return ("No response from API", "")
+
+        message = choices[0].get("message", {})
+        response_text = message.get("content", "") or ""
+        reasoning_content = message.get("reasoning_content", "") or ""
+
+        # 某些模型把推理放在 <think> 标签里而非 reasoning_content 字段
+        # 如果 reasoning_content 为空，尝试从 response_text 中提取
+        if not reasoning_content:
+            think_match = re.search(
+                r'<think(?:ing)?>(.*?)</think(?:ing)?>',
+                response_text,
+                flags=re.DOTALL
+            )
+            if think_match:
+                reasoning_content = think_match.group(1).strip()
+
+        return (response_text, reasoning_content)
+
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """移除 <think>...</think> 和 <thinking>...</thinking> 标签及内容"""
+        cleaned = re.sub(
+            r'<think(?:ing)?>\s*.*?\s*</think(?:ing)?>',
+            '',
+            text,
+            flags=re.DOTALL
+        )
+        # 清理多余的空行
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned.strip()
+
+
+
+
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
     "OllamaPromptsGeneratorTlant": OllamaPromptsGeneratorTlant,
@@ -1081,7 +1411,8 @@ NODE_CLASS_MAPPINGS = {
     "SaveImagePairForKontext": SaveImagePairForKontext,
     "StringFormatterTlant": StringFormatterTlant,
     "LoadSpecificTxtFileTlant": LoadSpecificTxtFileTlant,
-    "LoadSequencedTxtFileTlant": LoadSequencedTxtFileTlant
+    "LoadSequencedTxtFileTlant": LoadSequencedTxtFileTlant,
+    "OpenRouterApiTlantV1": OpenRouterApiTlantV1
 }  
 
 # Define display name for the node  
@@ -1097,7 +1428,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveImagePairForKontext": "Save Image Pair Text",
     "StringFormatterTlant": "String Formatter Tlant",
     "LoadSpecificTxtFileTlant": "Load Specific Txt File Tlant",
-    "LoadSequencedTxtFileTlant": "Load Sequenced Txt File Tlant"
+    "LoadSequencedTxtFileTlant": "Load Sequenced Txt File Tlant",
+    "OpenRouterApiTlantV1": "OpenRouter API (Tlant V1)"
 }
 
 WEB_DIRECTORY = "./web"  
