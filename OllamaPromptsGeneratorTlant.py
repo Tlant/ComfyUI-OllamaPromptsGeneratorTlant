@@ -1128,25 +1128,12 @@ class OpenRouterApiTlantV1:
                 }),
                 "remove_think_tags": ("BOOLEAN", {
                     "default": False,
-                    "tooltip": "Remove <think>...</think> and <thinking>...</thinking> blocks from output"
+                    "tooltip": "Remove <think>...</think> blocks from output"
                 }),
-            },
-            "optional": {
                 "proxy_url": ("STRING", {
                     "default": "",
                     "multiline": False,
                     "tooltip": "Optional proxy. e.g. http://127.0.0.1:1080 or socks5://127.0.0.1:1080"
-                }),
-                "images": ("IMAGE", {
-                    "tooltip": "Optional image input for vision models. Supports batch."
-                }),
-                "user_prompt_input": ("STRING", {
-                    "forceInput": True,
-                    "tooltip": "External user prompt input, will be appended to user_prompt"
-                }),
-                "system_prompt_input": ("STRING", {
-                    "forceInput": True,
-                    "tooltip": "External system prompt input, will be appended to system_prompt"
                 }),
                 "top_p": ("FLOAT", {
                     "default": 1.0,
@@ -1165,6 +1152,19 @@ class OpenRouterApiTlantV1:
                 "image_detail": (["auto", "low", "high"], {
                     "default": "auto",
                     "tooltip": "Image detail level for vision models"
+                }),
+            },
+            "optional": {
+                "images": ("IMAGE", {
+                    "tooltip": "Optional image input for vision models. Supports batch."
+                }),
+                "user_prompt_input": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "External user prompt input, will be appended to user_prompt"
+                }),
+                "system_prompt_input": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "External system prompt input, will be appended to system_prompt"
                 }),
             },
         }
