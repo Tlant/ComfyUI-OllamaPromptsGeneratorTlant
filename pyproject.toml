@@ -1,0 +1,15 @@
+[project]
+name = "comfyui-ollamapromptsgeneratortlant"
+description = "Use ollama to generate prompts based on reference text in comfyui."
+version = "1.0.0"
+license = {file = "LICENSE"}
+dependencies = ["requests>=2.32.3"]
+
+[project.urls]
+Repository = "https://github.com/Tlant/ComfyUI-OllamaPromptsGeneratorTlant"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-OllamaPromptsGeneratorTlant"
+Icon = ""
