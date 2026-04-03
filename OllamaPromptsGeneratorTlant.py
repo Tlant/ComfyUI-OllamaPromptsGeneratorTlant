@@ -1396,6 +1396,147 @@ class OpenRouterApiTlantV1:
         return cleaned.strip()
 
 
+class LoadSmartRandomTxtFileTlant:
+    """
+    智能随机读取 txt 文件节点（V4）
+    - 优先读取未读过的文件，全部读完后重置
+    - 每次执行实时扫描目录，能发现新增文件
+    - IS_CHANGED 永远强制重新执行
+    - 支持递归子目录
+    """
+
+    # ------------------------------------------------------------------ #
+    #  进程级共享状态（类变量），ComfyUI 重启前持久存在
+    # ------------------------------------------------------------------ #
+    _read_sets: dict = {}   # key: (dir_path, is_recursive) -> set of abs_path strings already read
+    _lock = None            # threading.Lock，延迟初始化
+
+    @classmethod
+    def _get_lock(cls):
+        import threading
+        if cls._lock is None:
+            cls._lock = threading.Lock()
+        return cls._lock
+
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "dir_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "placeholder": "提示词 txt 根目录路径，例如 G:\\prompts"
+                }),
+                "is_recursive": (["true", "false"], {
+                    "default": "true"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "INT", "INT")
+    RETURN_NAMES = ("file_content", "file_path", "read_count", "total_count")
+    FUNCTION = "read_file"
+    CATEGORY = "Tlant/File Operations"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        """永远返回随机数，强制每次工作流循环都重新执行"""
+        return str(random.random())
+
+    # ------------------------------------------------------------------ #
+    #                         文件扫描                                     #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _scan_files(dir_path: str, is_recursive: bool) -> list[str]:
+        """扫描目录，返回所有 .txt 绝对路径列表（按修改时间升序）"""
+        txt_files = []
+        if is_recursive:
+            for root, _, files in os.walk(dir_path):
+                for f in files:
+                    if f.lower().endswith(".txt"):
+                        full = os.path.abspath(os.path.join(root, f))
+                        if os.path.isfile(full):
+                            txt_files.append(full)
+        else:
+            for f in os.listdir(dir_path):
+                if f.lower().endswith(".txt"):
+                    full = os.path.abspath(os.path.join(dir_path, f))
+                    if os.path.isfile(full):
+                        txt_files.append(full)
+        # 按文件修改时间排序（旧→新），方便调试时看顺序
+        txt_files.sort(key=lambda p: os.path.getmtime(p))
+        return txt_files
+
+    # ------------------------------------------------------------------ #
+    #                         核心执行                                     #
+    # ------------------------------------------------------------------ #
+    def read_file(self, dir_path: str, is_recursive: str):
+        is_recursive_bool = (is_recursive == "true")
+
+        # 路径校验
+        if not os.path.exists(dir_path):
+            return (f"[Error] Directory not exists: {dir_path}", "", 0, 0)
+        if not os.path.isdir(dir_path):
+            return (f"[Error] Not a directory: {dir_path}", "", 0, 0)
+
+        try:
+            txt_files = self._scan_files(dir_path, is_recursive_bool)
+        except PermissionError as e:
+            return (f"[Error] Permission denied: {e}", "", 0, 0)
+        except Exception as e:
+            return (f"[Error] Scan error: {e}", "", 0, 0)
+
+        if not txt_files:
+            return ("[Error] No .txt files found", "", 0, 0)
+
+        total = len(txt_files)
+        state_key = (dir_path, is_recursive_bool)
+        all_paths = set(txt_files)
+
+        with self._get_lock():
+            # 初始化该目录的已读集合
+            if state_key not in self._read_sets:
+                self._read_sets[state_key] = set()
+
+            read_set: set = self._read_sets[state_key]
+
+            # 清理已读集合中不再存在的文件（文件被删除后不堆积）
+            read_set &= all_paths
+
+            # 计算未读文件
+            unread = [p for p in txt_files if p not in read_set]
+
+            if not unread:
+                # 全部读完，重置，重新开始
+                print(f"[SmartRandomTxt] All {total} files have been read. Resetting.")
+                read_set.clear()
+                unread = txt_files[:]
+
+            # 从未读文件中随机选一个
+            selected = random.choice(unread)
+            read_set.add(selected)
+            read_count = len(read_set)
+
+        # 读取文件内容
+        content = None
+        for encoding in ["utf-8", "gbk", "latin-1"]:
+            try:
+                with open(selected, "r", encoding=encoding) as f:
+                    content = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                return (f"[Error] File read error: {e}", selected, read_count, total)
+
+        if content is None:
+            return ("[Error] Failed to decode file with common encodings", selected, read_count, total)
+
+        print(f"[SmartRandomTxt] Read ({read_count}/{total}): {selected}")
+        return (content, selected, read_count, total)
 
 
 # Define node mappings for ComfyUI  
@@ -1404,6 +1545,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadRandomTxtFileTlant": LoadRandomTxtFileTlant,
     "LoadRandomTxtFileTlantV2": LoadRandomTxtFileTlantV2,
     "LoadRandomTxtFileTlantV3": LoadRandomTxtFileTlantV3,
+    "LoadSmartRandomTxtFileTlant": LoadSmartRandomTxtFileTlant,
     "OllamaSimpleTextGeneratorTlant": OllamaSimpleTextGeneratorTlant,
     "LoadImageAndExtractMetadataTlant": LoadImageAndExtractMetadataTlant,
     "RandomImageLoaderTlant": RandomImageLoaderTlant,
@@ -1421,6 +1563,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadRandomTxtFileTlant": "Load Random Txt File Tlant",
     "LoadRandomTxtFileTlantV2": "Load Random Txt File Tlant V2",
     "LoadRandomTxtFileTlantV3": "Load Random Text File V3",
+    "LoadSmartRandomTxtFileTlant": "Smart Random Txt Loader (Tlant V4)",
     "OllamaSimpleTextGeneratorTlant": "Ollama Simple Text Generator Tlant",
     "LoadImageAndExtractMetadataTlant": "Load Image & Extract Metadata",
     "RandomImageLoaderTlant": "Random Image Loader Tlant",
