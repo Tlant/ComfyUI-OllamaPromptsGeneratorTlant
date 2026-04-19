@@ -12,6 +12,138 @@ import re
 import base64
 import io
 from PIL import Image, ImageOps
+import traceback
+from pathlib import Path
+from typing import Any, Optional
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[ExtractNodes] WARNING: Pillow not installed. ExtractJsonFromPngTlant will not work.")
+
+
+def _parse_path(path: str) -> list:
+    """将 dot-notation 路径解析为 key/index 列表。
+    支持：293.inputs.text_0  /  inputs[0].text
+    """
+    parts = []
+    for segment in path.split('.'):
+        segment = segment.strip()
+        if not segment:
+            continue
+        bracket_idx = segment.find('[')
+        if bracket_idx != -1:
+            name = segment[:bracket_idx]
+            if name:
+                parts.append(name)
+            try:
+                idx = int(segment[bracket_idx + 1:segment.find(']')])
+                parts.append(idx)
+            except ValueError:
+                parts.append(segment)  # 解析失败就原样保留
+        else:
+            parts.append(segment)
+    return parts
+
+
+def _get_value_by_path(data: Any, path: str) -> Any:
+    """按 dot-notation 路径取值，返回 None 表示路径不存在。"""
+    current = data
+    for part in _parse_path(path):
+        if current is None:
+            return None
+        if isinstance(part, int):
+            if isinstance(current, list) and 0 <= part < len(current):
+                current = current[part]
+            else:
+                return None
+        elif isinstance(part, str):
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                return None
+        else:
+            return None
+    return current
+
+
+def _find_longest_text_field(data: Any, min_length: int = 20) -> tuple[Optional[str], Optional[str]]:
+    """
+    递归遍历 JSON，找到最长的字符串字段。
+    返回 (dot_path, text)，找不到时返回 (None, None)。
+    """
+    best_path = None
+    best_text = None
+    best_len  = min_length - 1  # 低于此长度不考虑
+
+    def _recurse(node: Any, path: str):
+        nonlocal best_path, best_text, best_len
+
+        if isinstance(node, dict):
+            for k, v in node.items():
+                _recurse(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                _recurse(v, f"{path}[{i}]")
+        elif isinstance(node, str):
+            if len(node) > best_len:
+                best_len  = len(node)
+                best_path = path
+                best_text = node
+
+    _recurse(data, "")
+    return best_path, best_text
+
+
+def _extract_workflow_from_png(image_path: str) -> tuple[Optional[dict], Optional[str]]:
+    """
+    从 PNG 文件元数据中提取工作流 JSON。
+    优先取 'workflow'（完整布局），其次取 'prompt'（执行结构）。
+    返回 (dict_or_None, error_message_or_None)
+    """
+    if not PIL_AVAILABLE:
+        return None, "Pillow 未安装，请执行: pip install Pillow"
+
+    path = Path(image_path)
+    if not path.exists():
+        return None, f"文件不存在: {image_path}"
+    if not path.is_file():
+        return None, f"路径不是文件: {image_path}"
+    if path.suffix.lower() != '.png':
+        # 非 PNG 也尝试读，只是给个警告
+        print(f"[ExtractJsonFromPngTlant] WARNING: 文件扩展名不是 .png，仍尝试读取: {image_path}")
+
+    try:
+        img = Image.open(image_path)
+        info = img.info if hasattr(img, 'info') else {}
+    except Exception as e:
+        return None, f"PIL 无法打开图片: {e}"
+
+    # 按优先级尝试字段
+    for field in ('workflow', 'prompt'):
+        raw = info.get(field)
+        if raw is None:
+            continue
+        if isinstance(raw, dict):
+            print(f"[ExtractJsonFromPngTlant] 从字段 '{field}' 直接取得 dict")
+            return raw, None
+        if isinstance(raw, (str, bytes)):
+            text = raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else raw
+            try:
+                data = json.loads(text)
+                print(f"[ExtractJsonFromPngTlant] 从字段 '{field}' 解析 JSON 成功，"
+                      f"顶层 key 数量: {len(data) if isinstance(data, dict) else 'N/A'}")
+                return data, None
+            except json.JSONDecodeError as e:
+                print(f"[ExtractJsonFromPngTlant] 字段 '{field}' JSON 解析失败: {e}，跳过")
+                continue
+
+    # 列出所有元数据 key，方便排查
+    print(f"[ExtractJsonFromPngTlant] 未找到 workflow/prompt 字段，"
+          f"当前元数据 keys: {list(info.keys())}")
+    return None, f"PNG 元数据中未找到 'workflow' 或 'prompt' 字段，现有 keys: {list(info.keys())}"
 
 
 class OllamaPromptsGeneratorTlant:  
@@ -1538,6 +1670,167 @@ class LoadSmartRandomTxtFileTlant:
         print(f"[SmartRandomTxt] Read ({read_count}/{total}): {selected}")
         return (content, selected, read_count, total)
 
+class ExtractJsonFromPngTlant:
+    """
+    从 ComfyUI 生成的 PNG 文件中提取工作流 JSON，
+    以序列化字符串形式输出，供后续节点使用。
+    """
+
+    CATEGORY = "tlant/utils"
+    FUNCTION = "run"
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("workflow_json", "error")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "placeholder": "/path/to/image.png"
+                }),
+            }
+        }
+
+    def run(self, image_path: str):
+        image_path = image_path.strip()
+        print(f"[ExtractJsonFromPngTlant] 开始处理: {image_path!r}")
+
+        if not image_path:
+            err = "image_path 为空，请输入 PNG 文件路径"
+            print(f"[ExtractJsonFromPngTlant] ERROR: {err}")
+            return ("", err)
+
+        try:
+            workflow_dict, error = _extract_workflow_from_png(image_path)
+        except Exception:
+            tb = traceback.format_exc()
+            print(f"[ExtractJsonFromPngTlant] 未预期异常:\n{tb}")
+            return ("", f"未预期异常:\n{tb}")
+
+        if error:
+            print(f"[ExtractJsonFromPngTlant] ERROR: {error}")
+            return ("", error)
+
+        try:
+            workflow_str = json.dumps(workflow_dict, ensure_ascii=False, indent=None)
+            print(f"[ExtractJsonFromPngTlant] 序列化成功，JSON 字符串长度: {len(workflow_str)}")
+            return (workflow_str, "")
+        except Exception as e:
+            tb = traceback.format_exc()
+            print(f"[ExtractJsonFromPngTlant] JSON 序列化失败:\n{tb}")
+            return ("", f"JSON 序列化失败: {e}\n{tb}")
+
+
+class ExtractPromptFromJsonTlant:
+    """
+    从工作流 JSON 字符串中按路径提取提示词文本。
+    auto_select 开启时忽略 json_path，自动定位最长文本字段。
+    """
+
+    CATEGORY = "tlant/utils"
+    FUNCTION = "run"
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("prompt_text", "matched_path", "error")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "workflow_json": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "placeholder": "粘贴 workflow JSON 字符串，或连接上一节点输出"
+                }),
+                "json_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "placeholder": "例: 293.inputs.text_0"
+                }),
+                "auto_select": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "自动(最长文本)",
+                    "label_off": "手动(json_path)"
+                }),
+            }
+        }
+
+    def run(self, workflow_json: str, json_path: str, auto_select: bool):
+        workflow_json = workflow_json.strip()
+        json_path     = json_path.strip()
+
+        print(f"[ExtractPromptFromJson] auto_select={auto_select}, json_path={json_path!r}")
+
+        # ── 1. 反序列化 JSON ──────────────────────────
+        if not workflow_json:
+            err = "workflow_json 为空"
+            print(f"[ExtractPromptFromJson] ERROR: {err}")
+            return ("", "", err)
+
+        try:
+            data = json.loads(workflow_json)
+            print(f"[ExtractPromptFromJson] JSON 反序列化成功，"
+                  f"顶层 key 数量: {len(data) if isinstance(data, dict) else 'N/A'}")
+        except json.JSONDecodeError as e:
+            err = f"workflow_json 不是合法 JSON: {e}"
+            print(f"[ExtractPromptFromJson] ERROR: {err}")
+            return ("", "", err)
+
+        # ── 2. 自动模式 ───────────────────────────────
+        if auto_select:
+            print("[ExtractPromptFromJson] 自动模式：扫描最长文本字段 ...")
+            try:
+                found_path, found_text = _find_longest_text_field(data)
+            except Exception:
+                tb = traceback.format_exc()
+                print(f"[ExtractPromptFromJson] 自动扫描异常:\n{tb}")
+                return ("", "", f"自动扫描异常:\n{tb}")
+
+            if found_text is None:
+                err = "自动模式：未找到任何长度 >= 20 的文本字段"
+                print(f"[ExtractPromptFromJson] WARNING: {err}")
+                return ("", "", err)
+
+            print(f"[ExtractPromptFromJson] 自动模式找到路径: {found_path!r}，"
+                  f"文本长度: {len(found_text)}")
+            print(f"[ExtractPromptFromJson] 文本预览: {found_text[:120]!r}{'...' if len(found_text) > 120 else ''}")
+            return (found_text, found_path, "")
+
+        # ── 3. 手动模式 ───────────────────────────────
+        if not json_path:
+            err = "json_path 为空，请填写路径或开启 auto_select"
+            print(f"[ExtractPromptFromJson] ERROR: {err}")
+            return ("", "", err)
+
+        try:
+            value = _get_value_by_path(data, json_path)
+        except Exception:
+            tb = traceback.format_exc()
+            print(f"[ExtractPromptFromJson] 路径解析异常:\n{tb}")
+            return ("", "", f"路径解析异常:\n{tb}")
+
+        if value is None:
+            # 给出更多上下文帮助排查
+            first_part = _parse_path(json_path)[0] if json_path else ""
+            top_keys   = list(data.keys()) if isinstance(data, dict) else []
+            err = (f"路径 '{json_path}' 未找到对应值。\n"
+                   f"顶层 keys: {top_keys}\n"
+                   f"提示：路径第一级 '{first_part}' {'存在' if str(first_part) in top_keys else '不存在'} 于顶层")
+            print(f"[ExtractPromptFromJson] WARNING: {err}")
+            return ("", json_path, err)
+
+        if not isinstance(value, str):
+            # 非字符串时序列化输出，同时打印类型警告
+            value_str = json.dumps(value, ensure_ascii=False, indent=2)
+            print(f"[ExtractPromptFromJson] WARNING: 路径 '{json_path}' 的值类型为 "
+                  f"{type(value).__name__}，已转为 JSON 字符串输出")
+            return (value_str, json_path, f"WARNING: 值类型为 {type(value).__name__}，已序列化")
+
+        print(f"[ExtractPromptFromJson] 成功，路径: {json_path!r}，文本长度: {len(value)}")
+        print(f"[ExtractPromptFromJson] 文本预览: {value[:120]!r}{'...' if len(value) > 120 else ''}")
+        return (value, json_path, "")
+
 
 # Define node mappings for ComfyUI  
 NODE_CLASS_MAPPINGS = {  
@@ -1554,7 +1847,9 @@ NODE_CLASS_MAPPINGS = {
     "StringFormatterTlant": StringFormatterTlant,
     "LoadSpecificTxtFileTlant": LoadSpecificTxtFileTlant,
     "LoadSequencedTxtFileTlant": LoadSequencedTxtFileTlant,
-    "OpenRouterApiTlantV1": OpenRouterApiTlantV1
+    "OpenRouterApiTlantV1": OpenRouterApiTlantV1,
+    "ExtractJsonFromPngTlant": ExtractJsonFromPngTlant,
+    "ExtractPromptFromJsonTlant":   ExtractPromptFromJsonTlant,
 }  
 
 # Define display name for the node  
@@ -1572,7 +1867,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "StringFormatterTlant": "String Formatter Tlant",
     "LoadSpecificTxtFileTlant": "Load Specific Txt File Tlant",
     "LoadSequencedTxtFileTlant": "Load Sequenced Txt File Tlant",
-    "OpenRouterApiTlantV1": "OpenRouter API (Tlant V1)"
+    "OpenRouterApiTlantV1": "OpenRouter API (Tlant V1)",
+    "ExtractJsonFromPngTlant": "Extract JSON from PNG (Tlant)",
+    "ExtractPromptFromJsonTlant": "Extract Prompt from JSON",
 }
 
 WEB_DIRECTORY = "./web"  
